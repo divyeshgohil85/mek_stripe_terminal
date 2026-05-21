@@ -172,6 +172,9 @@ abstract class TerminalPlatform {
 
   @MethodApi(kotlin: MethodApiType.sync, swift: MethodApiType.sync)
   Future<void> setTapToPayUXConfiguration(TapToPayUxConfiguration configuration);
+
+  @MethodApi(kotlin: MethodApiType.sync, swift: MethodApiType.callbacks)
+  Future<bool> isTapToPayAccountLinked({required String? onBehalfOf});
 //endregion
 
   // TODO: add support to collectData and setLocalMobileUxConfiguration methods

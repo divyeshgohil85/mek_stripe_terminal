@@ -11,18 +11,18 @@ import com.stripe.stripeterminal.external.callable.ReaderCallback
 import com.stripe.stripeterminal.external.callable.RefundCallback
 import com.stripe.stripeterminal.external.callable.SetupIntentCallback
 import com.stripe.stripeterminal.external.models.AllowRedisplay
-import com.stripe.stripeterminal.external.models.CollectConfiguration
+import com.stripe.stripeterminal.external.models.CollectPaymentIntentConfiguration
 import com.stripe.stripeterminal.external.models.DeviceType
 import com.stripe.stripeterminal.external.models.ListLocationsParameters
 import com.stripe.stripeterminal.external.models.Location
 import com.stripe.stripeterminal.external.models.PaymentIntent
 import com.stripe.stripeterminal.external.models.Reader
 import com.stripe.stripeterminal.external.models.Refund
-import com.stripe.stripeterminal.external.models.RefundConfiguration
+import com.stripe.stripeterminal.external.models.CollectRefundConfiguration
 import com.stripe.stripeterminal.external.models.RefundParameters
 import com.stripe.stripeterminal.external.models.SetupIntent
 import com.stripe.stripeterminal.external.models.SetupIntentCancellationParameters
-import com.stripe.stripeterminal.external.models.SetupIntentConfiguration
+import com.stripe.stripeterminal.external.models.CollectSetupIntentConfiguration
 import com.stripe.stripeterminal.external.models.SetupIntentParameters
 import com.stripe.stripeterminal.external.models.TerminalException
 import com.stripe.stripeterminal.log.LogLevel
@@ -113,11 +113,12 @@ class TerminalPlatformPlugin(
         }
 
         val delegate = TerminalDelegatePlugin(handlers)
-        Terminal.initTerminal(
+        Terminal.init(
             applicationContext,
             if (shouldPrintLogs) LogLevel.VERBOSE else LogLevel.NONE,
             delegate,
-            delegate
+            delegate,
+            null
         )
     }
 
@@ -233,12 +234,12 @@ class TerminalPlatformPlugin(
         terminal.createPaymentIntent(
             params = parameters.toHost(),
             callback =
-            object : TerminalErrorHandler(result::error), PaymentIntentCallback {
-                override fun onSuccess(paymentIntent: PaymentIntent) {
-                    paymentIntents[paymentIntent.id!!] = paymentIntent
-                    result.success(paymentIntent.toApi())
+                object : TerminalErrorHandler(result::error), PaymentIntentCallback {
+                    override fun onSuccess(paymentIntent: PaymentIntent) {
+                        paymentIntents[paymentIntent.id!!] = paymentIntent
+                        result.success(paymentIntent.toApi())
+                    }
                 }
-            }
         )
     }
 
@@ -270,20 +271,19 @@ class TerminalPlatformPlugin(
     ) {
         val paymentIntent = findPaymentIntent(paymentIntentId)
         val config =
-            CollectConfiguration.Builder()
+            CollectPaymentIntentConfiguration.Builder()
                 .setSurchargeNotice(surchargeNotice)
                 .setRequestDynamicCurrencyConversion(requestDynamicCurrencyConversion)
                 .skipTipping(skipTipping)
                 .setTippingConfiguration(tippingConfiguration?.toHost())
                 .updatePaymentIntent(shouldUpdatePaymentIntent)
-                .setEnableCustomerCancellation(customerCancellationEnabled)
+                .setCustomerCancellation(if (customerCancellationEnabled) com.stripe.stripeterminal.external.models.CustomerCancellation.ENABLE_IF_AVAILABLE else com.stripe.stripeterminal.external.models.CustomerCancellation.DISABLE_IF_AVAILABLE)
                 .setAllowRedisplay(allowRedisplay.toHost())
+                .build()
 
         cancelablesCollectPaymentMethod[operationId] =
             terminal.collectPaymentMethod(
                 paymentIntent,
-                config = config.build(),
-                callback =
                 object : TerminalErrorHandler(result::error), PaymentIntentCallback {
                     override fun onFailure(e: TerminalException) {
                         cancelablesCollectPaymentMethod.remove(operationId)
@@ -295,7 +295,8 @@ class TerminalPlatformPlugin(
                         result.success(paymentIntent.toApi())
                         paymentIntents[paymentIntent.id!!] = paymentIntent
                     }
-                }
+                },
+                config
             )
     }
 
@@ -318,7 +319,7 @@ class TerminalPlatformPlugin(
         paymentIntentId: String
     ) {
         val paymentIntent = findPaymentIntent(paymentIntentId)
-        confirmPaymentIntentCancelables[operationId]= terminal.confirmPaymentIntent(
+        confirmPaymentIntentCancelables[operationId] = terminal.confirmPaymentIntent(
             paymentIntent,
             object : TerminalErrorHandler(result::error), PaymentIntentCallback {
                 override fun onFailure(e: TerminalException) {
@@ -409,16 +410,15 @@ class TerminalPlatformPlugin(
     ) {
         val setupIntent = findSetupIntent(setupIntentId)
         val config =
-            SetupIntentConfiguration.Builder()
-                .setEnableCustomerCancellation(customerCancellationEnabled)
-
+            CollectSetupIntentConfiguration.Builder()
+                .setCustomerCancellation(if (customerCancellationEnabled) com.stripe.stripeterminal.external.models.CustomerCancellation.ENABLE_IF_AVAILABLE else com.stripe.stripeterminal.external.models.CustomerCancellation.DISABLE_IF_AVAILABLE)
+                .build()
 
         cancelablesCollectSetupIntentPaymentMethod[operationId] =
             terminal.collectSetupIntentPaymentMethod(
                 setupIntent,
-                config = config.build(),
-                allowRedisplay = allowRedisplay.toHost(),
-                callback =
+                allowRedisplay.toHost(),
+                config,
                 object : TerminalErrorHandler(result::error), SetupIntentCallback {
                     override fun onFailure(e: TerminalException) {
                         cancelablesCollectSetupIntentPaymentMethod.remove(operationId)
@@ -431,7 +431,8 @@ class TerminalPlatformPlugin(
                         result.success(setupIntent.toApi())
                     }
                 }
-            )    }
+            )
+    }
 
     override fun onStopCollectSetupIntentPaymentMethod(result: Result<Unit>, operationId: Long) {
         cancelablesCollectSetupIntentPaymentMethod
@@ -500,24 +501,26 @@ class TerminalPlatformPlugin(
         customerCancellationEnabled: Boolean
     ) {
         val config =
-            RefundConfiguration.Builder().setEnableCustomerCancellation(customerCancellationEnabled)
+            CollectRefundConfiguration.Builder()
+                .setCustomerCancellation(if (customerCancellationEnabled) com.stripe.stripeterminal.external.models.CustomerCancellation.ENABLE_IF_AVAILABLE else com.stripe.stripeterminal.external.models.CustomerCancellation.DISABLE_IF_AVAILABLE)
+                .build()
+
+        val params = RefundParameters.ByChargeId(
+            id = chargeId,
+            amount = amount,
+            currency = currency
+        )
+            .let {
+                metadata?.let(it::setMetadata)
+                reverseTransfer?.let(it::setReverseTransfer)
+                refundApplicationFee?.let(it::setRefundApplicationFee)
+                it.build()
+            }
 
         cancelablesCollectRefundPaymentMethod[operationId] =
             terminal.collectRefundPaymentMethod(
-                RefundParameters.Builder(
-                    chargeId = chargeId,
-                    amount = amount,
-                    currency = currency
-                )
-                    .let {
-                        metadata?.let(it::setMetadata)
-                        reverseTransfer?.let(it::setReverseTransfer)
-                        refundApplicationFee?.let(it::setRefundApplicationFee)
-                        it.build()
-                    },
-
-                config = config.build(),
-                callback =
+                params,
+                config,
                 object : TerminalErrorHandler(result::error), Callback {
                     override fun onFailure(e: TerminalException) {
                         cancelablesCollectRefundPaymentMethod.remove(operationId)
@@ -589,6 +592,10 @@ class TerminalPlatformPlugin(
 
     override fun onSetTapToPayUXConfiguration(configuration: TapToPayUxConfigurationApi) {
         terminal.setTapToPayUxConfiguration(configuration.toHost());
+    }
+
+    override fun onIsTapToPayAccountLinked(onBehalfOf: String?): Boolean {
+        return true // Always return true for android
     }
     // endregion
 

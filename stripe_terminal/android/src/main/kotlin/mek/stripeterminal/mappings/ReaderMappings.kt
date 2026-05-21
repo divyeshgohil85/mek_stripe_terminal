@@ -71,7 +71,6 @@ fun DeviceType.toApi(): DeviceTypeApi? {
         DeviceType.CHIPPER_2X -> DeviceTypeApi.CHIPPER2_X
         DeviceType.STRIPE_M2 -> DeviceTypeApi.STRIPE_M2
         DeviceType.TAP_TO_PAY_DEVICE -> DeviceTypeApi.TAP_TO_PAY
-        DeviceType.VERIFONE_P400 -> DeviceTypeApi.VERIFONE_P400
         DeviceType.WISECUBE -> DeviceTypeApi.WISE_CUBE
         DeviceType.WISEPAD_3 -> DeviceTypeApi.WISE_PAD3
         DeviceType.WISEPAD_3S -> DeviceTypeApi.WISE_PAD3S
@@ -89,7 +88,7 @@ fun DeviceType.toApi(): DeviceTypeApi? {
         DeviceType.VERIFONE_UX700 -> DeviceTypeApi.VERIFONE_UX700
         DeviceType.VERIFONE_V660P_DEVKIT -> DeviceTypeApi.VERIFONE_V660P_DEVKIT
         DeviceType.VERIFONE_UX700_DEVKIT -> DeviceTypeApi.VERIFONE_UX700_DEVKIT
-        DeviceType.UNKNOWN -> null
+        else -> null
     }
 }
 
@@ -208,7 +207,7 @@ fun DiscoveryConfigurationApi.toHost(): DiscoveryConfiguration? {
                 timeout = timeout?.let { microsecondsToSeconds(it) } ?: 0
             )
         is BluetoothProximityDiscoveryConfigurationApi -> null
-        is HandoffDiscoveryConfigurationApi -> DiscoveryConfiguration.HandoffDiscoveryConfiguration()
+        is HandoffDiscoveryConfigurationApi -> DiscoveryConfiguration.AppsOnDevicesDiscoveryConfiguration()
         is InternetDiscoveryConfigurationApi ->
             DiscoveryConfiguration.InternetDiscoveryConfiguration(
                 isSimulated = isSimulated,
@@ -233,7 +232,7 @@ fun DeviceTypeApi.toHost(): DeviceType? {
         DeviceTypeApi.CHIPPER2_X -> DeviceType.CHIPPER_2X
         DeviceTypeApi.STRIPE_M2 -> DeviceType.STRIPE_M2
         DeviceTypeApi.TAP_TO_PAY -> DeviceType.TAP_TO_PAY_DEVICE
-        DeviceTypeApi.VERIFONE_P400 -> DeviceType.VERIFONE_P400
+        DeviceTypeApi.VERIFONE_P400 -> null
         DeviceTypeApi.WISE_CUBE -> DeviceType.WISECUBE
         DeviceTypeApi.WISE_PAD3 -> DeviceType.WISEPAD_3
         DeviceTypeApi.WISE_POS_E -> DeviceType.WISEPOS_E
@@ -281,5 +280,6 @@ fun ConnectionStatus.toApi(): ConnectionStatusApi {
         ConnectionStatus.CONNECTING -> ConnectionStatusApi.CONNECTING
         ConnectionStatus.CONNECTED -> ConnectionStatusApi.CONNECTED
         ConnectionStatus.DISCOVERING -> ConnectionStatusApi.DISCOVERING
+        ConnectionStatus.RECONNECTING -> ConnectionStatusApi.CONNECTING
     }
 }

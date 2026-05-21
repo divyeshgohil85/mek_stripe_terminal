@@ -18,23 +18,13 @@ fun TapToPayUxConfigurationApi.toHost(): TapToPayUxConfiguration {
 }
 
 fun TapToPayUxConfigurationTapZoneApi.toHost(): TapToPayUxConfiguration.TapZone {
-    val builder = TapToPayUxConfiguration.TapZone.Manual.Builder()
-    if (indicator != null) builder.indicator(indicator.toHost())
-    if (position != null) builder.position(position.toHost())
-    return builder.build()
-}
-
-fun TapToPayUxConfigurationTapZoneIndicatorApi.toHost(): TapToPayUxConfiguration.TapZoneIndicator {
-    return when (this) {
-        TapToPayUxConfigurationTapZoneIndicatorApi.ABOVE -> TapToPayUxConfiguration.TapZoneIndicator.ABOVE
-        TapToPayUxConfigurationTapZoneIndicatorApi.BELOW -> TapToPayUxConfiguration.TapZoneIndicator.BELOW
-        TapToPayUxConfigurationTapZoneIndicatorApi.FRONT -> TapToPayUxConfiguration.TapZoneIndicator.FRONT
-        TapToPayUxConfigurationTapZoneIndicatorApi.BEHIND -> TapToPayUxConfiguration.TapZoneIndicator.BEHIND
+    val x = position?.xBias?.toFloat() ?: 0.5f
+    val y = position?.yBias?.toFloat() ?: 0.5f
+    return when (indicator) {
+        TapToPayUxConfigurationTapZoneIndicatorApi.ABOVE -> TapToPayUxConfiguration.TapZone.Above(x)
+        TapToPayUxConfigurationTapZoneIndicatorApi.BELOW -> TapToPayUxConfiguration.TapZone.Below(x)
+        else -> TapToPayUxConfiguration.TapZone.Front(x, y)
     }
-}
-
-fun TapToPayUxConfigurationTapZonePositionApi.toHost(): TapToPayUxConfiguration.TapZonePosition {
-    return TapToPayUxConfiguration.TapZonePosition.Manual(xBias.toFloat(), yBias.toFloat());
 }
 
 fun TapToPayUxConfigurationColorSchemeApi.toHost(): TapToPayUxConfiguration.ColorScheme {
