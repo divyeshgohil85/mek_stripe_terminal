@@ -60,10 +60,15 @@ import mek.stripeterminal.plugin.TerminalDelegatePlugin
 import mek.stripeterminal.plugin.TerminalErrorHandler
 
 class TerminalPlugin : FlutterPlugin, ActivityAware {
+    companion object {
+        var context: Context? = null
+    }
+
     private lateinit var platform: TerminalPlatformPlugin
     private lateinit var discoverReadersController: DiscoverReadersControllerApi
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        context = binding.applicationContext
         val discoverReadersSubject = DiscoverReadersSubject()
         discoverReadersController = DiscoverReadersControllerApi(binding.binaryMessenger);
         discoverReadersController.setHandler(
@@ -79,6 +84,7 @@ class TerminalPlugin : FlutterPlugin, ActivityAware {
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        context = null
         if (Terminal.isInitialized()) platform.clean()
         discoverReadersController.removeHandler()
         TerminalPlatformApi.removeHandler()
