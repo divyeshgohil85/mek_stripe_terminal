@@ -10,6 +10,11 @@ import com.stripe.stripeterminal.external.callable.PaymentIntentCallback
 import com.stripe.stripeterminal.external.callable.ReaderCallback
 import com.stripe.stripeterminal.external.callable.RefundCallback
 import com.stripe.stripeterminal.external.callable.SetupIntentCallback
+import com.stripe.stripeterminal.external.models.CollectPaymentIntentConfiguration
+import com.stripe.stripeterminal.external.models.CollectRefundConfiguration
+import com.stripe.stripeterminal.external.models.CollectSetupIntentConfiguration
+import com.stripe.stripeterminal.external.models.ConfirmPaymentIntentConfiguration
+import com.stripe.stripeterminal.external.models.CustomerCancellation
 import com.stripe.stripeterminal.external.models.AllowRedisplay
 import com.stripe.stripeterminal.external.models.CollectPaymentIntentConfiguration
 import com.stripe.stripeterminal.external.models.DeviceType
@@ -31,11 +36,14 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import mek.stripeterminal.api.AllowRedisplayApi
 import mek.stripeterminal.api.CartApi
+import mek.stripeterminal.api.ClearCachedCredentialsResultApi
+import mek.stripeterminal.api.ConfirmPaymentIntentConfigurationApi
 import mek.stripeterminal.api.ConnectionConfigurationApi
 import mek.stripeterminal.api.ConnectionStatusApi
 import mek.stripeterminal.api.DeviceTypeApi
 import mek.stripeterminal.api.DiscoverReadersControllerApi
 import mek.stripeterminal.api.DiscoveryConfigurationApi
+import mek.stripeterminal.api.EasyConnectConfigurationApi
 import mek.stripeterminal.api.LocationApi
 import mek.stripeterminal.api.PaymentIntentApi
 import mek.stripeterminal.api.PaymentIntentParametersApi
@@ -67,6 +75,10 @@ class TerminalPlugin : FlutterPlugin, ActivityAware {
     private lateinit var platform: TerminalPlatformPlugin
     private lateinit var discoverReadersController: DiscoverReadersControllerApi
 
+    companion object {
+        private var handlerOwner: TerminalPlugin? = null
+    }
+
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
         val discoverReadersSubject = DiscoverReadersSubject()
@@ -81,13 +93,17 @@ class TerminalPlugin : FlutterPlugin, ActivityAware {
             discoverReadersSubject = discoverReadersSubject,
         )
         TerminalPlatformApi.setHandler(binding.binaryMessenger, platform)
+        handlerOwner = this
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = null
         if (Terminal.isInitialized()) platform.clean()
         discoverReadersController.removeHandler()
-        TerminalPlatformApi.removeHandler()
+        if (handlerOwner === this) {
+            TerminalPlatformApi.removeHandler()
+            handlerOwner = null
+        }
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -128,9 +144,15 @@ class TerminalPlatformPlugin(
         )
     }
 
-    override fun onClearCachedCredentials() {
-        terminal.clearCachedCredentials();
-        clean()
+    override fun onClearCachedCredentials(): ClearCachedCredentialsResultApi {
+        val result = terminal.clearCachedCredentials()
+        if (result.isSuccessful) {
+            clean()
+        }
+        return ClearCachedCredentialsResultApi(
+            isSuccessful = result.isSuccessful,
+            error = result.error?.toApi(),
+        )
     }
 
     // region Reader discovery, connection and updates
@@ -164,6 +186,43 @@ class TerminalPlatformPlugin(
             configuration.toHost(readerDelegate),
             object : TerminalErrorHandler(result::error), ReaderCallback {
                 override fun onSuccess(reader: Reader) = result.success(reader.toApi())
+            }
+        )
+    }
+
+    override fun onStartEasyConnect(
+        result: Result<ReaderApi>,
+        operationId: Long,
+        configuration: EasyConnectConfigurationApi
+    ) {
+        try {
+            val hostConfiguration = configuration.toHost(readerDelegate)
+            easyConnectCancelables[operationId] = terminal.easyConnect(
+                hostConfiguration,
+                object : TerminalErrorHandler(result::error), ReaderCallback {
+                    override fun onFailure(e: TerminalException) {
+                        easyConnectCancelables.remove(operationId)
+                        super.onFailure(e)
+                    }
+
+                    override fun onSuccess(reader: Reader) {
+                        easyConnectCancelables.remove(operationId)
+                        result.success(reader.toApi())
+                    }
+                }
+            )
+        } catch (e: IllegalArgumentException) {
+            result.error(
+                createApiError(TerminalExceptionCodeApi.UNKNOWN, e.message ?: "Invalid configuration")
+                    .toPlatformError()
+            )
+        }
+    }
+
+    override fun onStopEasyConnect(result: Result<Unit>, operationId: Long) {
+        easyConnectCancelables.remove(operationId)?.cancel(
+            object : TerminalErrorHandler(result::error), Callback {
+                override fun onSuccess() = result.success(Unit)
             }
         )
     }
@@ -261,9 +320,34 @@ class TerminalPlatformPlugin(
         )
     }
 
-    private var cancelablesCollectPaymentMethod = HashMap<Long, Cancelable>()
+    private var processPaymentIntentCancelables = HashMap<Long, Cancelable>()
 
-    override fun onStartCollectPaymentMethod(
+    private fun buildCollectPaymentIntentConfiguration(
+        requestDynamicCurrencyConversion: Boolean,
+        surchargeNotice: String?,
+        skipTipping: Boolean,
+        tippingConfiguration: TippingConfigurationApi?,
+        shouldUpdatePaymentIntent: Boolean,
+        customerCancellationEnabled: Boolean,
+        allowRedisplay: AllowRedisplayApi
+    ): CollectPaymentIntentConfiguration {
+        val customerCancellation = if (customerCancellationEnabled) {
+            CustomerCancellation.ENABLE_IF_AVAILABLE
+        } else {
+            CustomerCancellation.DISABLE_IF_AVAILABLE
+        }
+        return CollectPaymentIntentConfiguration.Builder()
+            .setSurchargeNotice(surchargeNotice)
+            .setRequestDynamicCurrencyConversion(requestDynamicCurrencyConversion)
+            .skipTipping(skipTipping)
+            .setTippingConfiguration(tippingConfiguration?.toHost())
+            .updatePaymentIntent(shouldUpdatePaymentIntent)
+            .setCustomerCancellation(customerCancellation)
+            .setAllowRedisplay(allowRedisplay.toHost())
+            .build()
+    }
+
+    override fun onStartProcessPaymentIntent(
         result: Result<PaymentIntentApi>,
         operationId: Long,
         paymentIntentId: String,
@@ -273,62 +357,29 @@ class TerminalPlatformPlugin(
         tippingConfiguration: TippingConfigurationApi?,
         shouldUpdatePaymentIntent: Boolean,
         customerCancellationEnabled: Boolean,
-        allowRedisplay: AllowRedisplayApi
+        allowRedisplay: AllowRedisplayApi,
+        confirmConfiguration: ConfirmPaymentIntentConfigurationApi?
     ) {
         val paymentIntent = findPaymentIntent(paymentIntentId)
-        val config =
-            CollectPaymentIntentConfiguration.Builder()
-                .setSurchargeNotice(surchargeNotice)
-                .setRequestDynamicCurrencyConversion(requestDynamicCurrencyConversion)
-                .skipTipping(skipTipping)
-                .setTippingConfiguration(tippingConfiguration?.toHost())
-                .updatePaymentIntent(shouldUpdatePaymentIntent)
-                .setCustomerCancellation(if (customerCancellationEnabled) com.stripe.stripeterminal.external.models.CustomerCancellation.ENABLE_IF_AVAILABLE else com.stripe.stripeterminal.external.models.CustomerCancellation.DISABLE_IF_AVAILABLE)
-                .setAllowRedisplay(allowRedisplay.toHost())
-                .build()
+        val collectConfig = buildCollectPaymentIntentConfiguration(
+            requestDynamicCurrencyConversion = requestDynamicCurrencyConversion,
+            surchargeNotice = surchargeNotice,
+            skipTipping = skipTipping,
+            tippingConfiguration = tippingConfiguration,
+            shouldUpdatePaymentIntent = shouldUpdatePaymentIntent,
+            customerCancellationEnabled = customerCancellationEnabled,
+            allowRedisplay = allowRedisplay
+        )
+        val confirmConfig = confirmConfiguration?.toHost()
+            ?: ConfirmPaymentIntentConfiguration.Builder().build()
 
-        cancelablesCollectPaymentMethod[operationId] =
-            terminal.collectPaymentMethod(
-                paymentIntent,
-                object : TerminalErrorHandler(result::error), PaymentIntentCallback {
-                    override fun onFailure(e: TerminalException) {
-                        cancelablesCollectPaymentMethod.remove(operationId)
-                        super.onFailure(e)
-                    }
-
-                    override fun onSuccess(paymentIntent: PaymentIntent) {
-                        cancelablesCollectPaymentMethod.remove(operationId)
-                        result.success(paymentIntent.toApi())
-                        paymentIntents[paymentIntent.id!!] = paymentIntent
-                    }
-                },
-                config
-            )
-    }
-
-    override fun onStopCollectPaymentMethod(result: Result<Unit>, operationId: Long) {
-        cancelablesCollectPaymentMethod
-            .remove(operationId)
-            ?.cancel(
-                object : TerminalErrorHandler(result::error), Callback {
-                    override fun onSuccess() = result.success(Unit)
-                }
-            )
-    }
-
-    private var confirmPaymentIntentCancelables = HashMap<Long, Cancelable>()
-
-
-    override fun onStartConfirmPaymentIntent(
-        result: Result<PaymentIntentApi>,
-        operationId: Long,
-        paymentIntentId: String
-    ) {
-        val paymentIntent = findPaymentIntent(paymentIntentId)
-        confirmPaymentIntentCancelables[operationId] = terminal.confirmPaymentIntent(
+        processPaymentIntentCancelables[operationId] = terminal.processPaymentIntent(
             paymentIntent,
+            collectConfig,
+            confirmConfig,
             object : TerminalErrorHandler(result::error), PaymentIntentCallback {
                 override fun onFailure(e: TerminalException) {
+                    processPaymentIntentCancelables.remove(operationId)
                     val paymentIntentUpdated = e.paymentIntent
                     if (paymentIntentUpdated != null) {
                         paymentIntents[paymentIntentUpdated.id!!] = paymentIntentUpdated
@@ -337,6 +388,7 @@ class TerminalPlatformPlugin(
                 }
 
                 override fun onSuccess(paymentIntent: PaymentIntent) {
+                    processPaymentIntentCancelables.remove(operationId)
                     paymentIntents.remove(paymentIntent.id)
                     result.success(paymentIntent.toApi())
                 }
@@ -344,8 +396,8 @@ class TerminalPlatformPlugin(
         )
     }
 
-    override fun onStopConfirmPaymentIntent(result: Result<Unit>, operationId: Long) {
-        confirmPaymentIntentCancelables.remove(operationId)?.cancel(
+    override fun onStopProcessPaymentIntent(result: Result<Unit>, operationId: Long) {
+        processPaymentIntentCancelables.remove(operationId)?.cancel(
             object : TerminalErrorHandler(result::error), Callback {
                 override fun onSuccess() = result.success(Unit)
             }
@@ -368,8 +420,6 @@ class TerminalPlatformPlugin(
 
     // region Saving payment details for later use
     private var setupIntents = HashMap<String, SetupIntent>()
-    private var cancelablesCollectSetupIntentPaymentMethod = HashMap<Long, Cancelable>()
-
     override fun onCreateSetupIntent(
         result: Result<SetupIntentApi>,
         customerId: String?,
@@ -407,7 +457,9 @@ class TerminalPlatformPlugin(
         )
     }
 
-    override fun onStartCollectSetupIntentPaymentMethod(
+    private var processSetupIntentCancelables = HashMap<Long, Cancelable>()
+
+    override fun onStartProcessSetupIntent(
         result: Result<SetupIntentApi>,
         operationId: Long,
         setupIntentId: String,
@@ -415,53 +467,27 @@ class TerminalPlatformPlugin(
         customerCancellationEnabled: Boolean
     ) {
         val setupIntent = findSetupIntent(setupIntentId)
+        val customerCancellation = if (customerCancellationEnabled) {
+            CustomerCancellation.ENABLE_IF_AVAILABLE
+        } else {
+            CustomerCancellation.DISABLE_IF_AVAILABLE
+        }
         val config =
             CollectSetupIntentConfiguration.Builder()
-                .setCustomerCancellation(if (customerCancellationEnabled) com.stripe.stripeterminal.external.models.CustomerCancellation.ENABLE_IF_AVAILABLE else com.stripe.stripeterminal.external.models.CustomerCancellation.DISABLE_IF_AVAILABLE)
-                .build()
+                .setCustomerCancellation(customerCancellation)
 
-        cancelablesCollectSetupIntentPaymentMethod[operationId] =
-            terminal.collectSetupIntentPaymentMethod(
-                setupIntent,
-                allowRedisplay.toHost(),
-                config,
-                object : TerminalErrorHandler(result::error), SetupIntentCallback {
-                    override fun onFailure(e: TerminalException) {
-                        cancelablesCollectSetupIntentPaymentMethod.remove(operationId)
-                        super.onFailure(e)
-                    }
-
-                    override fun onSuccess(setupIntent: SetupIntent) {
-                        cancelablesCollectSetupIntentPaymentMethod.remove(operationId)
-                        setupIntents[setupIntent.id!!] = setupIntent
-                        result.success(setupIntent.toApi())
-                    }
-                }
-            )
-    }
-
-    override fun onStopCollectSetupIntentPaymentMethod(result: Result<Unit>, operationId: Long) {
-        cancelablesCollectSetupIntentPaymentMethod
-            .remove(operationId)
-            ?.cancel(
-                object : TerminalErrorHandler(result::error), Callback {
-                    override fun onSuccess() = result.success(Unit)
-                }
-            )
-    }
-
-    private var confirmSetupIntentCancelables = HashMap<Long, Cancelable>()
-
-    override fun onStartConfirmSetupIntent(
-        result: Result<SetupIntentApi>,
-        operationId: Long,
-        setupIntentId: String
-    ) {
-        val setupIntent = findSetupIntent(setupIntentId)
-        confirmSetupIntentCancelables[operationId] = terminal.confirmSetupIntent(
+        processSetupIntentCancelables[operationId] = terminal.processSetupIntent(
             setupIntent,
+            allowRedisplay.toHost(),
+            config.build(),
             object : TerminalErrorHandler(result::error), SetupIntentCallback {
+                override fun onFailure(e: TerminalException) {
+                    processSetupIntentCancelables.remove(operationId)
+                    super.onFailure(e)
+                }
+
                 override fun onSuccess(setupIntent: SetupIntent) {
+                    processSetupIntentCancelables.remove(operationId)
                     setupIntents[setupIntent.id!!] = setupIntent
                     result.success(setupIntent.toApi())
                 }
@@ -469,8 +495,8 @@ class TerminalPlatformPlugin(
         )
     }
 
-    override fun onStopConfirmSetupIntent(result: Result<Unit>, operationId: Long) {
-        confirmSetupIntentCancelables.remove(operationId)?.cancel(
+    override fun onStopProcessSetupIntent(result: Result<Unit>, operationId: Long) {
+        processSetupIntentCancelables.remove(operationId)?.cancel(
             object : TerminalErrorHandler(result::error), Callback {
                 override fun onSuccess() = result.success(Unit)
             }
@@ -493,12 +519,15 @@ class TerminalPlatformPlugin(
     // endregion
 
     // region Saving payment details for later use
-    private var cancelablesCollectRefundPaymentMethod = HashMap<Long, Cancelable>()
+    private var processRefundCancelables = HashMap<Long, Cancelable>()
 
-    override fun onStartCollectRefundPaymentMethod(
-        result: Result<Unit>,
+    private var easyConnectCancelables = HashMap<Long, Cancelable>()
+    override fun onStartProcessRefund(
+        result: Result<RefundApi>,
         operationId: Long,
-        chargeId: String,
+        chargeId: String?,
+        paymentIntentId: String?,
+        paymentIntentClientSecret: String?,
         amount: Long,
         currency: String,
         metadata: HashMap<String, String>?,
@@ -506,71 +535,44 @@ class TerminalPlatformPlugin(
         refundApplicationFee: Boolean?,
         customerCancellationEnabled: Boolean
     ) {
+        val customerCancellation = if (customerCancellationEnabled) {
+            CustomerCancellation.ENABLE_IF_AVAILABLE
+        } else {
+            CustomerCancellation.DISABLE_IF_AVAILABLE
+        }
         val config =
-            CollectRefundConfiguration.Builder()
-                .setCustomerCancellation(if (customerCancellationEnabled) com.stripe.stripeterminal.external.models.CustomerCancellation.ENABLE_IF_AVAILABLE else com.stripe.stripeterminal.external.models.CustomerCancellation.DISABLE_IF_AVAILABLE)
-                .build()
+            CollectRefundConfiguration.Builder().setCustomerCancellation(customerCancellation)
 
-        val params = RefundParameters.ByChargeId(
-            id = chargeId,
+        val params = buildRefundParameters(
+            chargeId = chargeId,
+            paymentIntentId = paymentIntentId,
+            paymentIntentClientSecret = paymentIntentClientSecret,
             amount = amount,
-            currency = currency
+            currency = currency,
+            metadata = metadata,
+            reverseTransfer = reverseTransfer,
+            refundApplicationFee = refundApplicationFee
         )
-            .let {
-                metadata?.let(it::setMetadata)
-                reverseTransfer?.let(it::setReverseTransfer)
-                refundApplicationFee?.let(it::setRefundApplicationFee)
-                it.build()
-            }
 
-        cancelablesCollectRefundPaymentMethod[operationId] =
-            terminal.collectRefundPaymentMethod(
-                params,
-                config,
-                object : TerminalErrorHandler(result::error), Callback {
-                    override fun onFailure(e: TerminalException) {
-                        cancelablesCollectRefundPaymentMethod.remove(operationId)
-                        super.onFailure(e)
-                    }
-
-                    override fun onSuccess() {
-                        cancelablesCollectRefundPaymentMethod.remove(operationId)
-                        result.success(Unit)
-                    }
-                }
-            )
-    }
-
-    override fun onStopCollectRefundPaymentMethod(result: Result<Unit>, operationId: Long) {
-        cancelablesCollectRefundPaymentMethod
-            .remove(operationId)
-            ?.cancel(
-                object : TerminalErrorHandler(result::error), Callback {
-                    override fun onSuccess() = result.success(Unit)
-                }
-            )
-    }
-
-    private var confirmRefundCancelables = HashMap<Long, Cancelable>()
-
-    override fun onStartConfirmRefund(result: Result<RefundApi>, operationId: Long) {
-        confirmRefundCancelables[operationId] = terminal.confirmRefund(
+        processRefundCancelables[operationId] = terminal.processRefund(
+            params,
+            config.build(),
             object : TerminalErrorHandler(result::error), RefundCallback {
                 override fun onFailure(e: TerminalException) {
-                    confirmRefundCancelables.remove(operationId)
+                    processRefundCancelables.remove(operationId)
                     super.onFailure(e)
                 }
 
                 override fun onSuccess(refund: Refund) {
-                    confirmRefundCancelables.remove(operationId)
+                    processRefundCancelables.remove(operationId)
                     result.success(refund.toApi())
                 }
             }
         )
     }
 
-    override fun onStopConfirmRefund(result: Result<Unit>, operationId: Long) {
-        confirmRefundCancelables.remove(operationId)?.cancel(
+    override fun onStopProcessRefund(result: Result<Unit>, operationId: Long) {
+        processRefundCancelables.remove(operationId)?.cancel(
             object : TerminalErrorHandler(result::error), Callback {
                 override fun onSuccess() = result.success(Unit)
             }
@@ -607,6 +609,40 @@ class TerminalPlatformPlugin(
 
     // ======================== INTERNAL METHODS
 
+    private fun buildRefundParameters(
+        chargeId: String?,
+        paymentIntentId: String?,
+        paymentIntentClientSecret: String?,
+        amount: Long,
+        currency: String,
+        metadata: HashMap<String, String>?,
+        reverseTransfer: Boolean?,
+        refundApplicationFee: Boolean?
+    ): RefundParameters {
+        val params = when {
+            paymentIntentId != null -> {
+                val clientSecret = paymentIntentClientSecret
+                    ?: throw IllegalArgumentException("paymentIntentClientSecret is required when paymentIntentId is provided")
+                RefundParameters.ByPaymentIntentId(
+                    id = paymentIntentId,
+                    clientSecret = clientSecret,
+                    amount = amount,
+                    currency = currency
+                )
+            }
+            chargeId != null -> RefundParameters.ByChargeId(
+                id = chargeId,
+                amount = amount,
+                currency = currency
+            )
+            else -> throw IllegalArgumentException("Either chargeId or paymentIntentId must be provided")
+        }
+        metadata?.let(params::setMetadata)
+        reverseTransfer?.let(params::setReverseTransfer)
+        refundApplicationFee?.let(params::setRefundApplicationFee)
+        return params.build()
+    }
+
     private fun findActiveReader(serialNumber: String): Reader {
         val reader = discoveredReaders.firstOrNull { it.serialNumber == serialNumber }
         return reader
@@ -636,22 +672,18 @@ class TerminalPlatformPlugin(
 
         discoverReadersSubject.clear()
 
-        cancelablesCollectPaymentMethod.values.forEach { it.cancel(EmptyCallback()) }
-        cancelablesCollectPaymentMethod = hashMapOf()
-        confirmPaymentIntentCancelables.values.forEach { it.cancel(EmptyCallback()) }
-        confirmPaymentIntentCancelables = hashMapOf()
+        processPaymentIntentCancelables.values.forEach { it.cancel(EmptyCallback()) }
+        processPaymentIntentCancelables = hashMapOf()
         paymentIntents = hashMapOf()
 
-        cancelablesCollectSetupIntentPaymentMethod.values.forEach { it.cancel(EmptyCallback()) }
-        cancelablesCollectSetupIntentPaymentMethod = hashMapOf()
-        confirmSetupIntentCancelables.values.forEach { it.cancel(EmptyCallback()) }
-        confirmSetupIntentCancelables = hashMapOf()
+        processSetupIntentCancelables.values.forEach { it.cancel(EmptyCallback()) }
+        processSetupIntentCancelables = hashMapOf()
         setupIntents = hashMapOf()
 
-        cancelablesCollectRefundPaymentMethod.values.forEach { it.cancel(EmptyCallback()) }
-        cancelablesCollectRefundPaymentMethod = hashMapOf()
-        confirmRefundCancelables.values.forEach { it.cancel(EmptyCallback()) }
-        confirmRefundCancelables = hashMapOf()
+        processRefundCancelables.values.forEach { it.cancel(EmptyCallback()) }
+        processRefundCancelables = hashMapOf()
+        easyConnectCancelables.values.forEach { it.cancel(EmptyCallback()) }
+        easyConnectCancelables = hashMapOf()
     }
 }
 

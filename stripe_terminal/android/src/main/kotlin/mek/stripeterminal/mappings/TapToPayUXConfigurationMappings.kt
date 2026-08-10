@@ -5,7 +5,6 @@ import com.stripe.stripeterminal.external.models.TapToPayUxConfiguration
 import mek.stripeterminal.api.TapToPayUxConfigurationColorSchemeApi
 import mek.stripeterminal.api.TapToPayUxConfigurationTapZoneApi
 import mek.stripeterminal.api.TapToPayUxConfigurationTapZoneIndicatorApi
-import mek.stripeterminal.api.TapToPayUxConfigurationTapZonePositionApi
 import mek.stripeterminal.api.TapToPayUxConfigurationDarkModeApi
 
 
@@ -18,12 +17,28 @@ fun TapToPayUxConfigurationApi.toHost(): TapToPayUxConfiguration {
 }
 
 fun TapToPayUxConfigurationTapZoneApi.toHost(): TapToPayUxConfiguration.TapZone {
-    val x = position?.xBias?.toFloat() ?: 0.5f
-    val y = position?.yBias?.toFloat() ?: 0.5f
+    val xBias = position?.xBias?.toFloat()
+    val yBias = position?.yBias?.toFloat()
     return when (indicator) {
-        TapToPayUxConfigurationTapZoneIndicatorApi.ABOVE -> TapToPayUxConfiguration.TapZone.Above(x)
-        TapToPayUxConfigurationTapZoneIndicatorApi.BELOW -> TapToPayUxConfiguration.TapZone.Below(x)
-        else -> TapToPayUxConfiguration.TapZone.Front(x, y)
+        TapToPayUxConfigurationTapZoneIndicatorApi.LEFT ->
+            if (yBias != null) TapToPayUxConfiguration.TapZone.Left(yBias)
+            else TapToPayUxConfiguration.TapZone.Left()
+        TapToPayUxConfigurationTapZoneIndicatorApi.RIGHT ->
+            if (yBias != null) TapToPayUxConfiguration.TapZone.Right(yBias)
+            else TapToPayUxConfiguration.TapZone.Right()
+        TapToPayUxConfigurationTapZoneIndicatorApi.ABOVE ->
+            if (xBias != null) TapToPayUxConfiguration.TapZone.Above(xBias)
+            else TapToPayUxConfiguration.TapZone.Above()
+        TapToPayUxConfigurationTapZoneIndicatorApi.BELOW ->
+            if (xBias != null) TapToPayUxConfiguration.TapZone.Below(xBias)
+            else TapToPayUxConfiguration.TapZone.Below()
+        TapToPayUxConfigurationTapZoneIndicatorApi.FRONT ->
+            if (xBias != null && yBias != null) TapToPayUxConfiguration.TapZone.Front(xBias, yBias)
+            else TapToPayUxConfiguration.TapZone.Front()
+        TapToPayUxConfigurationTapZoneIndicatorApi.BEHIND ->
+            if (xBias != null && yBias != null) TapToPayUxConfiguration.TapZone.Behind(xBias, yBias)
+            else TapToPayUxConfiguration.TapZone.Behind()
+        null -> TapToPayUxConfiguration.TapZone.Default
     }
 }
 

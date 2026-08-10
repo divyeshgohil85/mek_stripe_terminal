@@ -131,6 +131,7 @@ private fun TerminalErrorCode.toApiCode(): TerminalExceptionCodeApi? {
         TerminalErrorCode.READER_SETTINGS_ERROR -> TerminalExceptionCodeApi.READER_SETTINGS_ERROR
         TerminalErrorCode.READER_MISSING_ENCRYPTION_KEYS -> TerminalExceptionCodeApi.READER_MISSING_ENCRYPTION_KEYS
         TerminalErrorCode.INVALID_SURCHARGE_PARAMETER -> TerminalExceptionCodeApi.INVALID_SURCHARGE_PARAMETER
+        TerminalErrorCode.INVALID_MOTO_CONFIGURATION -> TerminalExceptionCodeApi.INVALID_PARAMETER
         TerminalErrorCode.READER_COMMUNICATION_SSL_ERROR -> TerminalExceptionCodeApi.READER_COMMUNICATION_SSL_ERROR
         TerminalErrorCode.TAP_TO_PAY_INSECURE_ENVIRONMENT -> TerminalExceptionCodeApi.TAP_TO_PAY_INSECURE_ENVIRONMENT
         TerminalErrorCode.GENERIC_READER_ERROR -> TerminalExceptionCodeApi.UNEXPECTED_READER_ERROR
@@ -145,6 +146,11 @@ private fun TerminalErrorCode.toApiCode(): TerminalExceptionCodeApi? {
         TerminalErrorCode.PRINTER_UNAVAILABLE -> TerminalExceptionCodeApi.PRINTER_UNAVAILABLE
         TerminalErrorCode.PRINTER_ERROR -> TerminalExceptionCodeApi.PRINTER_ERROR
         TerminalErrorCode.TAP_TO_PAY_UNSUPPORTED_PROCESSOR -> TerminalExceptionCodeApi.TAP_TO_PAY_UNSUPPORTED_PROCESSOR
+        TerminalErrorCode.TAP_TO_PAY_PIN_UNAVAILABLE -> TerminalExceptionCodeApi.TAP_TO_PAY_PIN_UNAVAILABLE
+        TerminalErrorCode.BARCODE_SCANNER_UNAVAILABLE -> TerminalExceptionCodeApi.BARCODE_SCANNER_UNAVAILABLE
+        TerminalErrorCode.BARCODE_REQUESTED_SCANNER_NOT_FOUND -> TerminalExceptionCodeApi.BARCODE_REQUESTED_SCANNER_NOT_FOUND
+        TerminalErrorCode.BARCODE_SCANNING_UNSUPPORTED_DEVICE -> TerminalExceptionCodeApi.BARCODE_SCANNING_UNSUPPORTED_DEVICE
+        TerminalErrorCode.SIMULATED_OFFLINE_MODE_NOT_AVAILABLE_IN_LIVEMODE -> TerminalExceptionCodeApi.SIMULATED_OFFLINE_MODE_NOT_AVAILABLE_IN_LIVEMODE
         else -> TerminalExceptionCodeApi.UNKNOWN
     }
 }
