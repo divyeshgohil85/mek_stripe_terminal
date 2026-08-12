@@ -24,8 +24,8 @@ class Terminal {
   static Terminal? _instance;
   static Terminal get instance {
     assert(
-      _instance != null,
-      'Please before use a Terminal instance init it with [Terminal.initTerminal] static method',
+    _instance != null,
+    'Please before use a Terminal instance init it with [Terminal.initTerminal] static method',
     );
     return _instance!;
   }
@@ -48,7 +48,7 @@ class Terminal {
     if (_instance != null) {
       throw StateError(
         'Already initialized!\n'
-        'Retrieve it with [Terminal.instance] static getter or use [Terminal.clearCachedCredentials] method to re-fetch the token.',
+            'Retrieve it with [Terminal.instance] static getter or use [Terminal.clearCachedCredentials] method to re-fetch the token.',
       );
     }
     if (_handlers.fetchToken != null) {
@@ -175,9 +175,9 @@ class Terminal {
   ///
   /// See https://stripe.com/docs/terminal/readers/connecting.
   Future<Reader> connectReader(
-    Reader reader, {
-    required ConnectionConfiguration configuration,
-  }) async {
+      Reader reader, {
+        required ConnectionConfiguration configuration,
+      }) async {
     return _handlers.handleReaderConnection(configuration.readerDelegate, () async {
       return await _platform.connectReader(reader.serialNumber, configuration);
     });
@@ -270,16 +270,16 @@ class Terminal {
   ///
   /// This method collects a payment method and confirms it in one call.
   CancelableFuture<PaymentIntent> processPaymentIntent(
-    PaymentIntent paymentIntent, {
-    bool requestDynamicCurrencyConversion = false,
-    String? surchargeNotice,
-    bool skipTipping = false,
-    TippingConfiguration? tippingConfiguration,
-    bool shouldUpdatePaymentIntent = false,
-    bool customerCancellationEnabled = true,
-    AllowRedisplay allowRedisplay = AllowRedisplay.unspecified,
-    ConfirmPaymentIntentConfiguration? confirmConfiguration,
-  }) {
+      PaymentIntent paymentIntent, {
+        bool requestDynamicCurrencyConversion = false,
+        String? surchargeNotice,
+        bool skipTipping = false,
+        TippingConfiguration? tippingConfiguration,
+        bool shouldUpdatePaymentIntent = false,
+        bool customerCancellationEnabled = true,
+        AllowRedisplay allowRedisplay = AllowRedisplay.unspecified,
+        ConfirmPaymentIntentConfiguration? confirmConfiguration,
+      }) {
     return CancelableFuture(_platform.stopProcessPaymentIntent, (id) async {
       return await _platform.startProcessPaymentIntent(
         operationId: id,
@@ -342,10 +342,10 @@ class Terminal {
 
   /// Processes a SetupIntent by collecting a payment method and confirming it.
   CancelableFuture<SetupIntent> processSetupIntent(
-    SetupIntent setupIntent, {
-    required AllowRedisplay allowRedisplay,
-    bool customerCancellationEnabled = true,
-  }) {
+      SetupIntent setupIntent, {
+        required AllowRedisplay allowRedisplay,
+        bool customerCancellationEnabled = true,
+      }) {
     return CancelableFuture(_platform.stopProcessSetupIntent, (id) async {
       return await _platform.startProcessSetupIntent(
         operationId: id,
@@ -445,9 +445,9 @@ class Terminal {
   //endregion
 
   StreamController<T> _handleStream<T>(
-    StreamController<T>? oldController,
-    Stream<T> Function() onListen,
-  ) {
+      StreamController<T>? oldController,
+      Stream<T> Function() onListen,
+      ) {
     unawaited(oldController?.close());
     final newController = StreamController<T>(sync: true);
     late StreamSubscription subscription;

@@ -423,7 +423,7 @@ class TerminalHandlersApi(
             listOf<Any?>(),
             object : MethodChannel.Result {
                 override fun notImplemented() {}
-                override fun error(code: String, message: String?, details: Any?) = 
+                override fun error(code: String, message: String?, details: Any?) =
                     onError(PlatformError(code, message, details))
                 override fun success(result: Any?) =
                     onSuccess(result as String)
@@ -1084,9 +1084,9 @@ data class InternetEasyConnectConfigurationApi(
         ): InternetEasyConnectConfigurationApi {
             return InternetEasyConnectConfigurationApi(
                 connectionConfiguration = (serialized[0] as List<Any?>).let { ConnectionConfigurationApi.deserialize(it) }
-                    as InternetConnectionConfigurationApi,
+                        as InternetConnectionConfigurationApi,
                 discoveryConfiguration = (serialized[1] as List<Any?>).let { DiscoveryConfigurationApi.deserialize(it) }
-                    as InternetDiscoveryConfigurationApi,
+                        as InternetDiscoveryConfigurationApi,
             )
         }
     }
@@ -1102,9 +1102,9 @@ data class AppsOnDevicesEasyConnectionConfigurationApi(
         ): AppsOnDevicesEasyConnectionConfigurationApi {
             return AppsOnDevicesEasyConnectionConfigurationApi(
                 connectionConfiguration = (serialized[0] as List<Any?>).let { ConnectionConfigurationApi.deserialize(it) }
-                    as AppsOnDevicesConnectionConfigurationApi,
+                        as AppsOnDevicesConnectionConfigurationApi,
                 discoveryConfiguration = (serialized[1] as List<Any?>).let { DiscoveryConfigurationApi.deserialize(it) }
-                    as AppsOnDevicesDiscoveryConfigurationApi,
+                        as AppsOnDevicesDiscoveryConfigurationApi,
             )
         }
     }
@@ -1120,9 +1120,9 @@ data class TapToPayEasyConnectConfigurationApi(
         ): TapToPayEasyConnectConfigurationApi {
             return TapToPayEasyConnectConfigurationApi(
                 connectionConfiguration = (serialized[0] as List<Any?>).let { ConnectionConfigurationApi.deserialize(it) }
-                    as TapToPayConnectionConfigurationApi,
+                        as TapToPayConnectionConfigurationApi,
                 discoveryConfiguration = (serialized[1] as List<Any?>).let { DiscoveryConfigurationApi.deserialize(it) }
-                    as TapToPayDiscoveryConfigurationApi,
+                        as TapToPayDiscoveryConfigurationApi,
             )
         }
     }

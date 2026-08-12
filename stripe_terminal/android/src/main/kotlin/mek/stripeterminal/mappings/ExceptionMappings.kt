@@ -2,8 +2,6 @@ package mek.stripeterminal.mappings
 
 import com.stripe.stripeterminal.external.models.TerminalErrorCode
 import com.stripe.stripeterminal.external.models.TerminalException
-import android.nfc.NfcAdapter
-import mek.stripeterminal.TerminalPlugin
 import mek.stripeterminal.api.PlatformError
 import mek.stripeterminal.api.TerminalExceptionApi
 import mek.stripeterminal.api.TerminalExceptionCodeApi
@@ -17,21 +15,7 @@ fun TerminalExceptionApi.toPlatformError(): PlatformError {
 }
 
 fun TerminalException.toApi(): TerminalExceptionApi {
-    var code = errorCode.toApiCode()
-
-    if (errorMessage.contains("unexpected reader failure", ignoreCase = true) ||
-        errorMessage.contains("nfc", ignoreCase = true)) {
-        try {
-            val ctx = TerminalPlugin.context
-            if (ctx != null) {
-                val nfcAdapter = NfcAdapter.getDefaultAdapter(ctx)
-                if (nfcAdapter != null && !nfcAdapter.isEnabled) {
-                    code = TerminalExceptionCodeApi.NFC_DISABLED
-                }
-            }
-        } catch (ignored: Exception) {}
-    }
-
+    val code = errorCode.toApiCode()
     return TerminalExceptionApi(
         code = code ?: TerminalExceptionCodeApi.UNKNOWN,
         message = errorMessage,
